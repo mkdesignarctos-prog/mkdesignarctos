@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Moon, Sun, Activity, User, AlarmClock, TimerReset, Hourglass, Gauge, Map } from 'lucide-react';
+import { Plus, Moon, Sun, Activity, AlarmClock, TimerReset, Hourglass, Gauge, Map } from 'lucide-react';
 import { Theme, Alarm } from './types';
 import { AddAlarmSheet } from './components/AddAlarmSheet';
 import { RingingScreen } from './components/RingingScreen';
@@ -15,6 +15,7 @@ import { alarmAudio } from './audio';
 import { StopwatchScreen } from './components/StopwatchScreen';
 import { TimerScreen } from './components/TimerScreen';
 import { ActivityScreen } from './components/ActivityScreen';
+// LoginScreen removed for automatic auth
 
 import { getUserId } from './lib/user';
 
@@ -74,13 +75,20 @@ function getTimeUntilNextAlarm(alarmTime: string, days: number[], now: Date): st
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<Theme>('masculine');
+  const [theme, setTheme] = useState<Theme>(() => {
+    return (localStorage.getItem('theme_cache') as Theme) || 'masculine';
+  });
   const [currentTab, setCurrentTab] = useState<TabType>('alarms');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [alarms, setAlarms] = useState<Alarm[]>([
-    { id: '1', time: '06:30', label: 'Treino pesado', enabled: true, days: [1,2,3,4,5], challenge: 'math', sound: 'heavy_buzzer' },
-    { id: '2', time: '08:00', label: 'Reunião Diária', enabled: false, days: [], challenge: 'none', sound: 'radar' }
-  ]);
+  const [userId, setUserId] = useState<string>(getUserId());
+  const [alarms, setAlarms] = useState<Alarm[]>(() => {
+    try {
+      const stored = localStorage.getItem('alarms_cache');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+       return [];
+    }
+  });
   const [alarmsLoaded, setAlarmsLoaded] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [editingAlarm, setEditingAlarm] = useState<Alarm | null>(null);
@@ -108,31 +116,62 @@ export default function App() {
     if (!permissionsGranted) {
       setShowPermissions(true);
     }
+  }, []);
 
-    const fetchAlarms = async () => {
+  useEffect(() => {
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+
+    const fetchUserData = async () => {
        try {
-         const res = await fetch('/api/sync/alarms', { headers: { 'x-user-id': getUserId() } });
-         if (res.ok) {
-            const data = await res.json();
+         // Fetch Alarms
+         const alarmRes = await fetch('/api/sync/alarms', { 
+           headers: { 'x-user-id': String(userId).trim() } 
+         });
+         if (alarmRes.ok) {
+            const data = await alarmRes.json();
             if (data.alarms) setAlarms(data.alarms);
          }
+
+         // Fetch Preferences (Theme)
+         const prefRes = await fetch('/api/sync/preferences', { 
+           headers: { 'x-user-id': String(userId).trim() } 
+         });
+         if (prefRes.ok) {
+            const prefData = await prefRes.json();
+            if (prefData.data?.theme) setTheme(prefData.data.theme);
+         }
        } catch (e) {
-         console.error('Failed to remote sync alarms', e);
+         console.error('Failed to remote sync data', e);
        } finally {
          setAlarmsLoaded(true);
        }
     };
-    fetchAlarms();
-  }, []);
+    fetchUserData();
+  }, [userId]);
 
   useEffect(() => {
-    if (!alarmsLoaded) return;
+    if (!alarmsLoaded || !userId || userId === 'null' || userId === 'undefined') return;
+    
+    const cleanUserId = String(userId).trim();
+
+    // Cache Alarms Locally
+    localStorage.setItem('alarms_cache', JSON.stringify(alarms));
+
+    // Save Alarms
     fetch('/api/sync/alarms', {
        method: 'POST',
-       headers: { 'Content-Type': 'application/json', 'x-user-id': getUserId() },
+       headers: { 'Content-Type': 'application/json', 'x-user-id': cleanUserId },
        body: JSON.stringify({ alarms })
     }).catch(e => console.error(e));
-  }, [alarms, alarmsLoaded]);
+
+    // Save Preferences
+    localStorage.setItem('theme_cache', theme);
+    fetch('/api/sync/preferences', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json', 'x-user-id': cleanUserId },
+       body: JSON.stringify({ data: { theme } })
+    }).catch(e => console.error(e));
+  }, [alarms, alarmsLoaded, userId, theme]);
 
   // Initialize audio context on first user interaction
   useEffect(() => {
@@ -433,9 +472,9 @@ export default function App() {
           </>
         )}
 
-        {currentTab === 'stopwatch' && <StopwatchScreen theme={theme} />}
-        {currentTab === 'timer' && <TimerScreen theme={theme} onFinish={() => setTimerFinished(true)} />}
-        {(currentTab === 'odometer' || currentTab === 'speedometer') && <ActivityScreen theme={theme} mode={currentTab as 'odometer' | 'speedometer'} />}
+        {currentTab === 'stopwatch' && <StopwatchScreen theme={theme} userId={userId!} />}
+        {currentTab === 'timer' && <TimerScreen theme={theme} userId={userId!} onFinish={() => setTimerFinished(true)} />}
+        {(currentTab === 'odometer' || currentTab === 'speedometer') && <ActivityScreen theme={theme} mode={currentTab as 'odometer' | 'speedometer'} userId={userId!} />}
 
         {/* Bottom Tab Bar */}
         <div className={`absolute bottom-0 w-full px-6 pb-6 pt-4 border-t z-40 backdrop-blur-3xl flex justify-around items-center ${

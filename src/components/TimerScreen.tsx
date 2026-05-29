@@ -7,17 +7,22 @@ import { alarmAudio } from '../audio';
 
 interface TimerScreenProps {
   theme: Theme;
+  userId: string;
   onFinish?: () => void;
 }
 
-export function TimerScreen({ theme, onFinish }: TimerScreenProps) {
+export function TimerScreen({ theme, userId, onFinish }: TimerScreenProps) {
   const isMasculine = theme === 'masculine';
   
   // input state: up to 6 digits representing hhmmss
   const [inputDigits, setInputDigits] = useState<string>('');
   
   const [isRunning, setIsRunning] = useState(false);
-  const [timeRemainingMs, setTimeRemainingMs] = useState(0);
+  const [timeRemainingMs, setTimeRemainingMs] = useState(() => {
+    try {
+      return Number(localStorage.getItem('timer_remaining_cache')) || 0;
+    } catch { return 0; }
+  });
   const [initialTimeMs, setInitialTimeMs] = useState(0);
   const [isRinging, setIsRinging] = useState(false);
   
@@ -25,20 +30,29 @@ export function TimerScreen({ theme, onFinish }: TimerScreenProps) {
   const lastTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    fetch('/api/sync/timers', { headers: { 'x-user-id': getUserId() } })
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+    const cleanUserId = String(userId).trim();
+    fetch('/api/sync/timers', { headers: { 'x-user-id': cleanUserId } })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (data?.data && inputDigits === '') {
-           // We can just load history or something here, but let's keep it simple.
+        if (data?.data) {
+           const remoteTime = data.data.lastTimerTime;
+           if (remoteTime && timeRemainingMs === 0) {
+             setTimeRemainingMs(remoteTime);
+             localStorage.setItem('timer_remaining_cache', String(remoteTime));
+           }
         }
       })
       .catch(() => {});
-  }, []);
+  }, [userId]);
 
   const saveToDb = (time: number) => {
+    localStorage.setItem('timer_remaining_cache', String(time));
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+    const cleanUserId = String(userId).trim();
     fetch('/api/sync/timers', {
        method: 'POST',
-       headers: { 'Content-Type': 'application/json', 'x-user-id': getUserId() },
+       headers: { 'Content-Type': 'application/json', 'x-user-id': cleanUserId },
        body: JSON.stringify({ data: { lastTimerTime: time } })
     }).catch(console.error);
   };

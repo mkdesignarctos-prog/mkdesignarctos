@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { X, Check, Music, Upload } from 'lucide-react';
 import { Alarm, ChallengeType, Theme, RingtoneId } from '../types';

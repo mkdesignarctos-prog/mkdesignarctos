@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 
 export function getUserId(): string {
-  let uid = localStorage.getItem('device_user_id');
-  if (!uid) {
-    uid = uuidv4();
-    localStorage.setItem('device_user_id', uid);
+  let id = localStorage.getItem('auth_user_id');
+  if (!id || id === 'null' || id === 'undefined') {
+    id = uuidv4();
+    localStorage.setItem('auth_user_id', id);
   }
-  return uid;
+  return id;
 }

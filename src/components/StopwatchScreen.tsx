@@ -6,33 +6,45 @@ import { getUserId } from '../lib/user';
 
 interface StopwatchScreenProps {
   theme: Theme;
+  userId: string;
 }
 
-export function StopwatchScreen({ theme }: StopwatchScreenProps) {
+export function StopwatchScreen({ theme, userId }: StopwatchScreenProps) {
   const isMasculine = theme === 'masculine';
   const [isRunning, setIsRunning] = useState(false);
   const [timeMs, setTimeMs] = useState(0);
-  const [laps, setLaps] = useState<number[]>([]);
+  const [laps, setLaps] = useState<number[]>(() => {
+    try {
+      const stored = localStorage.getItem('stopwatch_laps_cache');
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const requestRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
-
+ 
   useEffect(() => {
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+    const cleanUserId = String(userId).trim();
     // Basic sync load
-    fetch('/api/sync/stopwatch', { headers: { 'x-user-id': getUserId() } })
+    fetch('/api/sync/stopwatch', { headers: { 'x-user-id': cleanUserId } })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.data) {
-          setLaps(data.data.laps || []);
-          // Not restoring running state directly to avoid jumping numbers incorrectly without a reference point, but if user wants we can save state.
+          const remoteLaps = data.data.laps || [];
+          setLaps(remoteLaps);
+          localStorage.setItem('stopwatch_laps_cache', JSON.stringify(remoteLaps));
         }
       })
       .catch(() => {});
-  }, []);
-
+  }, [userId]);
+ 
   const saveToDb = (newLaps: number[]) => {
+    localStorage.setItem('stopwatch_laps_cache', JSON.stringify(newLaps));
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+    const cleanUserId = String(userId).trim();
     fetch('/api/sync/stopwatch', {
        method: 'POST',
-       headers: { 'Content-Type': 'application/json', 'x-user-id': getUserId() },
+       headers: { 'Content-Type': 'application/json', 'x-user-id': cleanUserId },
        body: JSON.stringify({ data: { laps: newLaps } })
     }).catch(e => console.error(e));
   };

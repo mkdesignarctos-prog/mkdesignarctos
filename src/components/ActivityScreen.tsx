@@ -7,6 +7,7 @@ import { getUserId } from '../lib/user';
 interface ActivityScreenProps {
   theme: Theme;
   mode: 'odometer' | 'speedometer';
+  userId: string;
 }
 
 interface ActivityData {
@@ -14,7 +15,7 @@ interface ActivityData {
   trips: { distance: number; date: string }[];
 }
 
-export function ActivityScreen({ theme, mode }: ActivityScreenProps) {
+export function ActivityScreen({ theme, mode, userId }: ActivityScreenProps) {
   const isMasculine = theme === 'masculine';
   const [speed, setSpeed] = useState(0); // in km/h
   const [sessionDistance, setSessionDistance] = useState(0); // in meters
@@ -24,8 +25,10 @@ export function ActivityScreen({ theme, mode }: ActivityScreenProps) {
   const lastPos = useRef<GeolocationCoordinates | null>(null);
 
   useEffect(() => {
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+    const cleanUserId = String(userId).trim();
     // Load persisted data
-    fetch('/api/sync/activity', { headers: { 'x-user-id': getUserId() } })
+    fetch('/api/sync/activity', { headers: { 'x-user-id': cleanUserId } })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.data) {
@@ -33,12 +36,14 @@ export function ActivityScreen({ theme, mode }: ActivityScreenProps) {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [userId]);
 
   const saveToDb = (totalDist: number) => {
+    if (!userId || userId === 'null' || userId === 'undefined') return;
+    const cleanUserId = String(userId).trim();
     fetch('/api/sync/activity', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': getUserId() },
+      headers: { 'Content-Type': 'application/json', 'x-user-id': cleanUserId },
       body: JSON.stringify({ data: { totalDistance: totalDist } })
     }).catch(e => console.error(e));
   };

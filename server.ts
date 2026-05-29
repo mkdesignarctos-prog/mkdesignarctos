@@ -3,6 +3,8 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { createClient } from "@supabase/supabase-js";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
 
 const COUNTER_FILE = path.join(process.cwd(), "data", "counter.json");
 
@@ -16,14 +18,14 @@ if (!fs.existsSync(COUNTER_FILE)) {
 }
 
 let supabase: ReturnType<typeof createClient> | null = null;
-function getSupabase() {
+function getSupabase(): any {
   if (!supabase) {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_ANON_KEY;
     if (!url || !key) {
       throw new Error("As variáveis de ambiente SUPABASE_URL e SUPABASE_ANON_KEY são obrigatórias.");
     }
-    supabase = createClient(url, key);
+    supabase = createClient(url, key) as any;
   }
   return supabase;
 }
@@ -35,37 +37,55 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+  // Basic request logging for debugging
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+  });
+
+  // Auth API - Removed manual flows for automatic device ID
+
   // API handling - Supabase sync
   app.get('/api/sync/alarms', async (req, res) => {
     const userId = req.headers['x-user-id'] as string;
-    if (!userId) {
-      res.status(400).json({ error: "Missing x-user-id" });
+    if (!userId || userId === 'null') {
+      res.status(400).json({ error: "Missing or invalid x-user-id" });
       return;
     }
     try {
       const db = getSupabase();
-      const { data, error } = await db.from('app_users').select('alarms_data').eq('user_id', userId).single();
+      const { data, error } = await db.from('app_users').select('alarms_data').eq('user_id', userId).maybeSingle();
       if (error) {
-        res.json({ alarms: null });
+        console.error('Fetch alarms error details:', JSON.stringify(error, null, 2));
+        res.json({ alarms: [] });
         return;
       }
-      res.json({ alarms: data?.alarms_data || null });
+      res.json({ alarms: data?.alarms_data || [] });
     } catch (e: any) {
-      res.json({ alarms: null, error: e.message });
+      console.error('Fetch alarms catch:', e.message);
+      res.json({ alarms: [], error: e.message });
     }
   });
 
   app.post('/api/sync/alarms', async (req, res) => {
     const userId = req.headers['x-user-id'] as string;
-    if (!userId) {
-      res.status(400).json({ error: "Missing x-user-id" });
+    if (!userId || userId === 'null') {
+      res.status(400).json({ error: "Missing or invalid x-user-id" });
       return;
     }
     try {
       const db = getSupabase();
-      await db.from('app_users').upsert({ user_id: userId, alarms_data: req.body.alarms }, { onConflict: 'user_id' });
+      const { error } = await db.from('app_users').upsert({ 
+        user_id: userId, 
+        alarms_data: req.body.alarms 
+      }, { onConflict: 'user_id' });
+      if (error) {
+        console.error('Post alarms error details:', JSON.stringify(error, null, 2));
+        throw error;
+      }
       res.json({ success: true });
     } catch (e: any) {
+      console.error('Post alarms catch:', e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -110,7 +130,7 @@ async function startServer() {
     const userId = req.headers['x-user-id'] as string;
     try {
       const db = getSupabase();
-      const { data, error } = await db.from('app_stopwatch').select('stopwatch_data').eq('user_id', userId).single();
+      const { data, error } = await db.from('app_stopwatch').select('stopwatch_data').eq('user_id', userId).maybeSingle();
       if (error) { res.json({ data: null }); return; }
       res.json({ data: data?.stopwatch_data || null });
     } catch { res.json({ data: null }); }
@@ -129,7 +149,7 @@ async function startServer() {
     const userId = req.headers['x-user-id'] as string;
     try {
       const db = getSupabase();
-      const { data, error } = await db.from('app_timers').select('timer_data').eq('user_id', userId).single();
+      const { data, error } = await db.from('app_timers').select('timer_data').eq('user_id', userId).maybeSingle();
       if (error) { res.json({ data: null }); return; }
       res.json({ data: data?.timer_data || null });
     } catch { res.json({ data: null }); }
@@ -148,7 +168,7 @@ async function startServer() {
     const userId = req.headers['x-user-id'] as string;
     try {
       const db = getSupabase();
-      const { data, error } = await db.from('app_activity').select('activity_data').eq('user_id', userId).single();
+      const { data, error } = await db.from('app_activity').select('activity_data').eq('user_id', userId).maybeSingle();
       if (error) { res.json({ data: null }); return; }
       res.json({ data: data?.activity_data || null });
     } catch { res.json({ data: null }); }
@@ -163,30 +183,46 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // API handling - counter
-  app.get("/api/counter", (req, res) => {
+  // Sync Preferences (Theme, etc)
+  app.get('/api/sync/preferences', async (req, res) => {
+    const userId = req.headers['x-user-id'] as string;
     try {
-      if (fs.existsSync(COUNTER_FILE)) {
-        const data = JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf-8'));
-        res.json({ count: data.count });
-      } else {
-        res.json({ count: 0 });
-      }
+      const db = getSupabase();
+      const { data, error } = await db.from('app_users').select('*').eq('user_id', userId).maybeSingle();
+      if (error) { res.json({ data: null }); return; }
+      res.json({ data: data?.preferences || null });
+    } catch { res.json({ data: null }); }
+  });
+
+  app.post('/api/sync/preferences', async (req, res) => {
+    const userId = req.headers['x-user-id'] as string;
+    try {
+      const db = getSupabase();
+      await db.from('app_users').upsert({ user_id: userId, preferences: req.body.data }, { onConflict: 'user_id' });
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // API handling - counter (connected to database)
+  app.get("/api/counter", async (req, res) => {
+    try {
+      const db = getSupabase();
+      const { data, error } = await db.from('app_stats').select('value').eq('id', 'visitor_count').maybeSingle();
+      res.json({ count: data?.value || 0 });
     } catch {
       res.json({ count: 0 });
     }
   });
 
-  app.post("/api/counter/increment", (req, res) => {
+  app.post("/api/counter/increment", async (req, res) => {
     try {
-      let data = { count: 0 };
-      if (fs.existsSync(COUNTER_FILE)) {
-        data = JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf-8'));
-      }
-      data.count += 1;
-      fs.writeFileSync(COUNTER_FILE, JSON.stringify(data));
-      res.json({ count: data.count });
-    } catch {
+      const db = getSupabase();
+      const { data: currentData } = await db.from('app_stats').select('value').eq('id', 'visitor_count').maybeSingle();
+      const newValue = (currentData?.value || 0) + 1;
+      await db.from('app_stats').upsert({ id: 'visitor_count', value: newValue });
+      res.json({ count: newValue });
+    } catch (e: any) {
+      console.error('Counter increment error:', e.message);
       res.json({ count: 0 });
     }
   });

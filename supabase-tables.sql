@@ -1,9 +1,17 @@
 -- Execute this SQL in your Supabase SQL Editor to create the required tables
 
+-- Table for login credentials
+create table if not exists public.app_credentials (
+  user_id text primary key,
+  username text unique,
+  password_hash text
+);
+
 -- Table for saving user alarms
 create table if not exists public.app_users (
   user_id text primary key,
-  alarms_data jsonb
+  alarms_data jsonb,
+  preferences jsonb default '{}'::jsonb
 );
 
 -- Table for saving user custom uploaded music/ringtones
@@ -31,3 +39,10 @@ create table if not exists public.app_activity (
   user_id text primary key,
   activity_data jsonb
 );
+
+-- Table for global application statistics (like visitor counter)
+create table if not exists public.app_stats (
+  id text primary key,
+  value bigint default 0
+);
+insert into public.app_stats (id, value) values ('visitor_count', 0) on conflict do nothing;
