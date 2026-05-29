@@ -1,0 +1,6 @@
+{
+  "name": "Alarme Inteligente",
+  "description": "Smart alarm clock with theme options and math challenges to wake up.",
+  "requestFramePermissions": ["microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
